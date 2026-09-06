@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: "*/10 * * * *"
   workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   fetch:
     runs-on: ubuntu-latest
@@ -14,7 +18,7 @@ jobs:
         run: |
           pip install curl_cffi -q
           python3 - <<'EOF'
-          import json, time
+          import json, time, sys
           from curl_cffi import requests
           HEADERS = {
             "content-type": "application/json",
@@ -40,6 +44,8 @@ jobs:
               else:
                   print("page", page, "degraded")
               time.sleep(1.2)
+          if not lots:
+              sys.exit("tonnel прислал 0 лотов — старое письмо не трогаю, зову на повтор")
           json.dump({"fetchedAt": int(time.time()*1000), "lots": lots}, open("lots.json", "w"))
           print("saved lots:", len(lots))
           EOF
@@ -50,4 +56,5 @@ jobs:
           git add lots.json
           git commit -m "lots $(date -u)" || echo "no changes"
           git push
+          
           
