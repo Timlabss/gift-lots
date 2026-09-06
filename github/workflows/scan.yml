@@ -1,0 +1,53 @@
+# Этот файл весь копируешь в репозиторий GitHub: .github/workflows/scan.yml
+# Робот-почтальон: ходит на Tonnel с браузерным почерком (curl_cffi) и кладёт свежие лоты в lots.json.
+name: lots-mirror
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install + fetch
+        run: |
+          pip install curl_cffi -q
+          python3 - <<'EOF'
+          import json, time
+          from curl_cffi import requests
+          HEADERS = {
+            "content-type": "application/json",
+            "origin": "https://market.tonnel.network",
+            "referer": "https://market.tonnel.network/",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137 Safari/537.36"
+          }
+          # каноничный фильтр витрины (спасибо boostNT): только реально продающиеся лоты
+          filt = {"price": {"$exists": True}, "refunded": {"$ne": True}, "buyer": {"$exists": False}, "export_at": {"$exists": True}}
+          sort = {"message_post_time": -1, "gift_id": -1}  # свежие сверху
+          lots = []
+          for page in (1, 2, 3):
+              for wait in (0, 4, 12):
+                  if wait: time.sleep(wait)
+                  try:
+                      r = requests.post("https://gifts2.tonnel.network/api/pageGifts", impersonate="chrome",
+                                        headers=HEADERS,
+                                        json={"page": page, "limit": 30, "sort": json.dumps(sort), "filter": json.dumps(filt), "price_range": None, "user_auth": ""})
+                      if r.status_code == 200:
+                          lots.extend(r.json()); break
+                  except Exception as e:
+                      print("retry:", e)
+              else:
+                  print("page", page, "degraded")
+              time.sleep(1.2)
+          json.dump({"fetchedAt": int(time.time()*1000), "lots": lots}, open("lots.json", "w"))
+          print("saved lots:", len(lots))
+          EOF
+      - name: commit
+        run: |
+          git config user.name "lots-mirror"
+          git config user.email "mirror@users.noreply.github.com"
+          git add lots.json
+          git commit -m "lots $(date -u)" || echo "no changes"
+          git push
+          
